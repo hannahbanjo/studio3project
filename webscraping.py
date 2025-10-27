@@ -27,7 +27,7 @@ def scrape_pdf(link):
             txt = page.extract_text()
             if txt:
                 all_text.append(txt)
-    return txt
+    return all_text
 
 for index, row in website_csv.iterrows():
     if row["type"] == "website":
