@@ -4,8 +4,9 @@ import pandas as pd
 import pdfplumber
 from io import BytesIO
 import re
+import csv
 
-csv = pd.read_csv('websites.csv')
+website_csv = pd.read_csv('websites.csv')
 
 def scrape_website(link):
     print(f"Scraping website: {link}")
@@ -26,14 +27,15 @@ def scrape_pdf(link):
             txt = page.extract_text()
             if txt:
                 all_text.append(txt)
-                print(f"Preview from page: {txt[:50]}")
     return txt
 
-for index, row in csv.iterrows():
+for index, row in website_csv.iterrows():
     if row["type"] == "website":
-       cleaned_text = scrape_website(row["link"])
-       csv.loc[index, 'cleaned_text'] = cleaned_text
-       
+        cleaned_text = scrape_website(row["link"])
+        website_csv.loc[index, 'cleaned_text'] = cleaned_text
+        
     if row["type"] == "pdf":
         cleaned_text = scrape_pdf(row["link"])
-        csv.loc[index, 'cleaned_text'] = cleaned_text
+        website_csv.loc[index, 'cleaned_text'] = cleaned_text
+
+website_csv.to_csv("websites.csv", index=False)
