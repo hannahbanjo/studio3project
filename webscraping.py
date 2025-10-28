@@ -4,7 +4,8 @@ import pandas as pd
 import pdfplumber
 from io import BytesIO
 import re
-import csv
+import os
+from google import genai
 
 website_csv = pd.read_csv('websites.csv')
 
@@ -12,6 +13,8 @@ def scrape_website(link):
     print(f"Scraping website: {link}")
     response = requests.get(link)
     soup = BeautifulSoup(response.text, 'html.parser')
+    for script in soup(["script", "style", "nav", "footer", "header"]):
+        script.extract()
     text = soup.get_text()
     text = text.strip()
     text = re.sub(r'\s+', ' ', text)
@@ -32,10 +35,11 @@ def scrape_pdf(link):
 for index, row in website_csv.iterrows():
     if row["type"] == "website":
         cleaned_text = scrape_website(row["link"])
-        website_csv.loc[index, 'cleaned_text'] = cleaned_text
         
     if row["type"] == "pdf":
         cleaned_text = scrape_pdf(row["link"])
-        website_csv.loc[index, 'cleaned_text'] = cleaned_text
 
 website_csv.to_csv("websites.csv", index=False)
+
+df = pd.read_csv("websites.csv")
+json_data = df.to_json("websites.json", orient='records', indent=2)
