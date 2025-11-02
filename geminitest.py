@@ -1,13 +1,17 @@
 import os
-from google import genai
+import google.generativeai as genai
+from dotenv import load_dotenv
 
-# API_KEY = os.environ["API_KEY"]
-API_KEY = "AIzaSyDLxtpeLSf_zO3C0zMIwvc6Ml8UPfS8Mo8"
-client = genai.Client(api_key=API_KEY)
+json_data = "https://github.com/hannahbanjo/studio3project/blob/main/websites.json"
 
-response = client.models.generate_content(
-    model = "gemini-2.5-flash",
-    contents = "Generate a sample 50 word paragraph about the benefits of web scraping."
-)
+load_dotenv()
 
+GOOGLE_API_KEY = os.environ["GOOGLE_API_KEY"]
+genai.configure(api_key=GOOGLE_API_KEY)
+
+model = genai.GenerativeModel("gemini-2.5-flash")
+response = model.generate_content([
+    json_data,
+    "For each value in the JSON object, can you identify if the article is fraud related based on the 'leaned_text' value. Just respond with a simple 'Fraud-Related' or 'Not Fraud-Related' for each website."
+])
 print(response.text)
