@@ -5,9 +5,9 @@ import pdfplumber
 from io import BytesIO
 import re
 import os
-from google import genai
+from dotenv import load_dotenv
 
-website_csv = pd.read_csv('websites.csv')
+load_dotenv()
 
 def scrape_website(link):
     print(f"Scraping website: {link}")
@@ -29,9 +29,13 @@ def scrape_pdf(link):
         for page in pdf.pages:
             txt = page.extract_text()
             if txt:
-                all_text.append(txt)
-    return all_text
+                clean_page = txt
+                all_text.append(clean_page)
+    return " ".join(all_text)
 
+website_csv = pd.read_csv("websites.csv")
+
+cleaned_texts = []
 for index, row in website_csv.iterrows():
     if row["type"] == "website":
         cleaned_text = scrape_website(row["link"])
@@ -39,6 +43,9 @@ for index, row in website_csv.iterrows():
     if row["type"] == "pdf":
         cleaned_text = scrape_pdf(row["link"])
 
+    cleaned_texts.append(cleaned_text)
+
+website_csv["cleaned_text"] = cleaned_texts
 website_csv.to_csv("websites.csv", index=False)
 
 df = pd.read_csv("websites.csv")
