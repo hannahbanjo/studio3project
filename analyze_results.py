@@ -66,7 +66,7 @@ def assign_trend(reason_text: str) -> str:
     for needle, label in TREND_MAP.items():
         if needle in t:
             return label
-    return "Other / General fraud"
+    return label
 
 def detect_lob(text):
     txt = text.lower()
@@ -89,7 +89,7 @@ def classify_trend(reason):
     for keyword, trend in TREND_MAP.items():
         if keyword in r:
             return trend
-    return "Other / General fraud"
+    return trend
 
 def main():
     records = load_any_json(JSON_PATH)
