@@ -1,13 +1,17 @@
 import json, re
 from pathlib import Path
 from collections import Counter
-
+from wordcloud import WordCloud
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+from sklearn.decomposition import PCA
+import numpy as np
 
-# ---------- USAA THEME ----------
+# ---------- 
+# USAA THEME
+# ----------
 USAA_NAVY = "#002F6C"
 USAA_GOLD = "#CC9900"
 USAA_BABY_BLUE = "#A7C7E7"
@@ -30,272 +34,286 @@ plt.rcParams.update({
     "axes.titleweight": "bold",
 })
 
-# Heatmap colormap (navy → baby blue → white → gold)
 USAA_CMAP = LinearSegmentedColormap.from_list(
     "usaa_cmap", [USAA_NAVY, USAA_BABY_BLUE, "white", USAA_GOLD]
 )
-# ---------------------------------
 
-# ---------- CONFIG ----------
-JSON_PATH   = Path("fraud_results.json")
+BOLD_USAA_CMAP = LinearSegmentedColormap.from_list(
+    "usaa_cmap", [USAA_NAVY, USAA_GOLD]
+)
 
+# ----------
+# Setup
+# ---------- 
+ 
+JSON_PATH   = Path("fraud_results_final.json")
 TEXT_COL    = "cleaned_text"
 CLASS_COL   = "fraud_related"
 REASON_COL  = "fraud_reason"
 DATE_COL    = "date"
-CLUSTER_COL = "kmeans_cluster"
 
 EXTRA_STOPS = {
-    "occ","fdic","frs","federal","reserve","treasury","office","department",
-    "united","states","u","s","section","bank","banks","banking","institution",
-    "institutions","agency","agencies","newsroom","pdf","page","pages","date",
-    "bulletin","press","release","public","policy","regulation","regulatory",
-    "comment","comments","docket","system","board","governors"
+    "http","https","www","com","org","gov","edu","php","html","amp", "office currency" 
 }
 
-# LOB keyword lists (from teammate)
-insurance_keywords = ["claim", "payout", "collision", "adjuster", "policyholder"]
-banking_keywords   = ["zelle", "wire", "account takeover", "credit card", "ach"]
-investing_keywords = ["retirement", "ira", "rollover", "brokerage", "portfolio"]
+# ---------- 
+# LOB Keywords
+#  ----------
+INSURANCE_KEYWORDS = [
+    "claim", "claims", "payout", "collision", "adjuster", "policyholder", 
+    "coverage", "premium", "underwriting", "auto insurance", "home insurance"
+]
+BANKING_KEYWORDS = [
+    "zelle", "wire", "account takeover", "credit card", "ach", "atm", 
+    "debit card", "fraudulent transaction", "overdraft", "online banking"
+]
+INVESTING_KEYWORDS = [
+    "retirement", "ira", "rollover", "brokerage", "portfolio", 
+    "stocks", "bonds", "mutual fund", "investment scam", "crypto", "bitcoin"
+]
 
-# Trend buckets
+# ---------- 
+# Fraud Trend Mapping
+#  ----------
 TREND_MAP = {
-    "phish": "Phishing / Social engineering",
-    "impersonat": "Identity theft / ATO",
-    "identity": "Identity theft / ATO",
-    "account takeover": "Identity theft / ATO",
-    "check": "Check fraud",
-    "peer": "P2P payment scams",
-    "zelle": "P2P payment scams",
-    "invest": "Investment / Crypto scams",
-    "crypto": "Investment / Crypto scams",
-    "wire": "Wire / Transfer scams",
-    "ach": "ACH / Transfer fraud",
-    "elder": "Elder financial exploitation",
-    "scam": "General scams",
+    r"phish": "Phishing / Social Engineering",
+    r"vish": "Phishing / Social Engineering",
+    r"impersonat": "Identity Theft / Account Takeover",
+    r"identity": "Identity Theft / Account Takeover",
+    r"account takeover": "Identity Theft / Account Takeover",
+    r"credential stuffing": "Credential Attacks",
+    r"sim swap": "SIM Swap Fraud",
+    r"check": "Check Fraud",
+    r"peer to peer|p2p": "P2P Payment Scams",
+    r"zelle": "P2P Payment Scams",
+    r"venmo": "P2P Payment Scams",
+    r"wire": "Wire / Transfer Scams",
+    r"ach": "ACH / Transfer Fraud",
+    r"invest": "Investment / Crypto Scams",
+    r"crypto": "Investment / Crypto Scams",
+    r"bitcoin": "Investment / Crypto Scams",
+    r"nft": "NFT / Digital Asset Scams",
+    r"elder": "Elder Financial Exploitation",
 }
 
-# ---------- HELPERS ----------
-
-def load_any_json(path: Path):
-    """Load JSON file into Python object."""
+def load_json(path: Path):
     with path.open("r", encoding="utf-8") as f:
         return json.loads(f.read().strip())
 
+def clean_text_strong(text):
+    if not isinstance(text, str): return ""
+    text = text.lower()
+    text = re.sub(r"https?://\S+|www\.\S+", " ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    junk_phrases = ["skip to main content","main content","skip navigation","privacy policy",
+                    "terms of service","terms of use","cookie policy","footer","header",
+                    "home menu","navigation menu","menu","sidebar","log in","login",
+                    "sign in","read more","click here","copyright","all rights reserved",
+                    "proposed rule", "financial institution", "comptroller", "fdic",
+                    "united states", "federal reserve", "secrecy act", "bank secrecy", "office",
+                    "helpwithmybank", "banks", "search", "gov", "bank", "organization", "currency"
+                    "management", "office currency", "custody services", "occ"]
+    for jp in junk_phrases: text = text.replace(jp, " ")
+    words = [w for w in text.split() if w not in EXTRA_STOPS]
+    return " ".join(words)
+
+def extract_ngrams(text, n=1):
+    words = re.findall(r"\b[\w'-]+\b", text.lower())
+    words = [w for w in words if w not in ENGLISH_STOP_WORDS and len(w)>2]
+    if n == 1:
+        return Counter(words)
+    return Counter([" ".join(words[i:i+n]) for i in range(len(words)-n+1)])
+
 def assign_trend(reason_text: str) -> str:
-    """Map free-text fraud_reason to a trend bucket."""
     t = (reason_text or "").lower()
-    for needle, label in TREND_MAP.items():
-        if needle in t:
+    for pattern, label in TREND_MAP.items():
+        if re.search(pattern, t):
             return label
-    return "Other / General fraud"
+    return label
 
 def detect_lob(text: str) -> str:
-    """Roughly classify article into Banking / Insurance / Investing."""
     txt = (text or "").lower()
     scores = {
-        "Insurance": sum(word in txt for word in insurance_keywords),
-        "Banking":   sum(word in txt for word in banking_keywords),
-        "Investing": sum(word in txt for word in investing_keywords),
+        "Insurance": sum(word in txt for word in INSURANCE_KEYWORDS),
+        "Banking": sum(word in txt for word in BANKING_KEYWORDS),
+        "Investing": sum(word in txt for word in INVESTING_KEYWORDS),
     }
-    # Return the LOB with the highest score (ties are fine)
     return max(scores, key=scores.get)
 
-# ---------- MAIN ----------
 
 def main():
-    # ---- Load & normalize ----
-    records = load_any_json(JSON_PATH)
-    df = pd.json_normalize(records, sep=".")
-    print("Columns:", df.columns.tolist())
+    df = pd.json_normalize(load_json(JSON_PATH), sep=".")
+    print(f"Loaded {len(df)} records")
 
-    # ---- Parse dates -> year ----
     if DATE_COL in df.columns:
-        df[DATE_COL] = pd.to_datetime(
-            df[DATE_COL],
-            format="%B %d, %Y",   # e.g. "December 4, 2024"
-            errors="coerce"
-        )
+        df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce")
         df["year"] = df[DATE_COL].dt.year.astype("Int64")
-    else:
-        print("⚠️ No 'date' column found; skipping year-based analysis.")
 
-    # ---- Keep only fraud-related ----
     if CLASS_COL in df.columns:
-        df = df[df[CLASS_COL] == True]
-
+        df = df[df[CLASS_COL]==True]
     if df.empty:
-        print("⚠️ No fraud-related rows found. Nothing to plot.")
-        return
+        print("No fraud-related articles found."); return
 
-    # ---- Detect Line of Business (LOB) ----
+    df["cleaned_strong"] = df[TEXT_COL].astype(str).apply(clean_text_strong)
+    combined_text = " ".join(df["cleaned_strong"])
+
+    # Calculate Bigrams
+    bigrams = extract_ngrams(combined_text, n=2)
+    top_terms = bigrams.most_common(15)
+    print("\nTop Bigrams:")
+    for term, freq in top_terms:
+        print(f"{term}: {freq}")
+
+    # LOB Detection 
     df["LOB"] = df[TEXT_COL].astype(str).apply(detect_lob)
     print("\nLOB counts:\n", df["LOB"].value_counts())
 
-    # ============================================================
-    # 1) TOP KEYWORDS BY LOB (USAA styled) + LEGEND
-    #    (x-axis shows ONLY keywords, color shows LOB)
-    # ============================================================
-    lob_top = {}
+    #  Trend Detection 
+    if REASON_COL in df.columns:
+        df["trend"] = df[REASON_COL].astype(str).apply(assign_trend)
+        trend_counts = df["trend"].value_counts()
+        print("\nTrend counts:\n", trend_counts)
 
+    #  Plot top terms 
+    plt.figure(figsize=(10,6))
+    plt.bar([t[0] for t in top_terms], [t[1] for t in top_terms], color=USAA_NAVY, edgecolor=USAA_SLATE)
+    plt.xticks(rotation=45, ha="right")
+    plt.title("Top Unigrams & Bigrams")
+    plt.ylabel("Frequency")
+    plt.tight_layout()
+    plt.savefig("top_terms.png", dpi=260)
+    print("Saved: top_terms.png")
+
+    #  Top trends by LOB 
+    lob_trends = {}
     for lob, rows in df.groupby("LOB"):
-        text = " ".join(rows[TEXT_COL].astype(str)).lower()
-        words = re.findall(r"\b[a-z]{3,}\b", text)
-        stopset = ENGLISH_STOP_WORDS.union(EXTRA_STOPS)
-        toks = [w for w in words if w not in stopset and not w.isdigit()]
-        counts = Counter(toks).most_common(7)
-        lob_top[lob] = counts
+        if REASON_COL in rows.columns:
+            trends = rows[REASON_COL].astype(str).apply(assign_trend)
+            counts = trends.value_counts().head(7)  # Top 7 trends per LOB
+            lob_trends[lob] = counts
 
-    # Map LOB -> color
-    lob_colors = {
-        "Banking":   USAA_NAVY,
-        "Insurance": USAA_GOLD,
-        "Investing": USAA_BABY_BLUE,
-    }
+    lob_colors = {"Banking": USAA_NAVY, "Insurance": USAA_GOLD, "Investing": USAA_BABY_BLUE}
+    all_trends, all_counts, all_colors = [], [], []
 
-    # Flatten into single list so x-axis labels are ONLY keywords
-    all_keywords = []
-    all_values = []
-    all_colors = []
-
-    for lob, items in lob_top.items():
-        for kw, count in items:
-            all_keywords.append(kw)
-            all_values.append(count)
+    for lob, counts in lob_trends.items():
+        for trend, count in counts.items():
+            all_trends.append(trend)
+            all_counts.append(count)
             all_colors.append(lob_colors.get(lob, USAA_SLATE))
 
-    x = range(len(all_keywords))
-
-    plt.figure(figsize=(11, 6))
-    plt.grid(True, axis="y")
-
-    plt.bar(
-        x,
-        all_values,
-        color=all_colors,
-        edgecolor=USAA_SLATE,
-        linewidth=1.0,
-        alpha=0.9,
-    )
-
-    # X-axis labels are JUST the keywords now
-    plt.xticks(x, all_keywords, rotation=45, ha="right")
-
-    # Legend that always shows all 3 LOBs
-    handles = [
-        plt.Line2D([0], [0], color=USAA_NAVY,      lw=10, label="Banking"),
-        plt.Line2D([0], [0], color=USAA_GOLD,      lw=10, label="Insurance"),
-        plt.Line2D([0], [0], color=USAA_BABY_BLUE, lw=10, label="Investing"),
-    ]
+    plt.figure(figsize=(12,6))
+    plt.bar(range(len(all_trends)), all_counts, color=all_colors, edgecolor=USAA_SLATE)
+    plt.xticks(range(len(all_trends)), all_trends, rotation=45, ha="right")
+    handles = [plt.Line2D([0],[0], color=c,lw=10,label=l) for l,c in lob_colors.items()]
     plt.legend(handles=handles, title="Line of Business", loc="upper right")
-
-    plt.title("Top Keywords by Line of Business")
-    plt.ylabel("Keyword Frequency")
+    plt.title("Top Fraud Trends by Line of Business")
+    plt.ylabel("Frequency")
     plt.tight_layout()
-    plt.savefig("lob_keywords.png", dpi=260)
-    print("Saved: lob_keywords.png")
+    plt.savefig("lob_trends.png", dpi=260)
+    print("Saved: lob_trends.png")
 
-    # ============================================================
-    # 2) FRAUD TRENDS (from LLM reasons)
-    # ============================================================
-    if REASON_COL in df.columns:
-        trend_series = df[REASON_COL].astype(str).apply(assign_trend)
-        trend_counts = trend_series.value_counts()
-        trend_counts.to_csv("trend_counts.csv")
-        print("\nTrend buckets:\n", trend_counts)
 
-        plt.figure()
-        plt.grid(True, axis="y")
-        trend_counts.plot(
-            kind="bar",
-            color=USAA_NAVY,
-            edgecolor=USAA_SLATE,
-            linewidth=1.2
-        )
-        plt.title("Fraud Trends (from LLM Reasons)")
-        plt.ylabel("Number of Articles")
-        plt.xticks(rotation=35, ha="right")
-        plt.tight_layout()
-        plt.savefig("top_trends.png", dpi=260)
-        print("Saved: top_trends.png")
-    else:
-        print("\n⚠️ No REASON column; skipping trend chart.")
-
-    # ============================================================
-    # 3) ARTICLES BY YEAR
-    # ============================================================
+    # Articles by Year 
     if "year" in df.columns and df["year"].notna().any():
-        year_counts = (
-            df["year"]
-            .dropna()
-            .astype(int)
-            .value_counts()
-            .sort_index()
-        )
-        year_counts.to_csv("articles_by_year.csv")
-        print("\nArticles by year:\n", year_counts)
-
+        years = df["year"].dropna().astype(int)
+        years_filtered = years[years != 2000]
+        year_counts = years_filtered.value_counts().sort_index()
         plt.figure()
-        plt.grid(True, axis="y")
-        plt.bar(
-            year_counts.index.astype(str),
-            year_counts.values,
-            color=USAA_NAVY,
-            edgecolor=USAA_SLATE,
-            linewidth=1.2
-        )
-        plt.title("Articles by Year (Scraped Dates)")
+        plt.bar(year_counts.index.astype(str), year_counts.values, color=USAA_NAVY, edgecolor=USAA_SLATE)
+        plt.title("Articles by Year")
         plt.ylabel("Number of Articles")
         plt.xlabel("Year")
         plt.tight_layout()
         plt.savefig("articles_by_year.png", dpi=260)
         print("Saved: articles_by_year.png")
-    else:
-        print("\n⚠️ No valid years; skipping articles-by-year chart.")
 
-    # ============================================================
-    # 4) TREND-BY-YEAR HEATMAP
-    # ============================================================
-    if (
-        "year" in df.columns
-        and df["year"].notna().any()
-        and REASON_COL in df.columns
-    ):
-        trend_series = df[REASON_COL].astype(str).apply(assign_trend)
+    # K-Means Cluster Visualization
+    if "embedding" in df.columns and "kmeans_cluster" in df.columns:
+        print("\nPlotting K-Means Clusters...")
+        
+        embedding_data = np.array(df["embedding"].tolist())
+        clusters = df["kmeans_cluster"].values
+        
+        pca = PCA(n_components=2)
+        components = pca.fit_transform(embedding_data)
+        
+        plt.figure(figsize=(10, 8))
+        
+        cluster_colors = [USAA_NAVY, USAA_GOLD, USAA_BABY_BLUE, USAA_SLATE, USAA_LIGHT_GRAY][:len(np.unique(clusters))]
+        
+        for cluster_id in np.unique(clusters):
+            idx = clusters == cluster_id
+            
+            plt.scatter(
+                components[idx, 0], 
+                components[idx, 1], 
+                c=cluster_colors[cluster_id], 
+                label=f"Cluster {cluster_id}",
+                alpha=0.6,
+                edgecolors=USAA_SLATE,
+                linewidths=0.5
+            )
+
+        plt.title(f"K-Means Clusters (k={len(np.unique(clusters))}) visualized via PCA")
+        plt.xlabel(f"PCA Component 1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+        plt.ylabel(f"PCA Component 2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+        plt.legend(title="Cluster ID")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig("kmeans_clusters_pca.png", dpi=260)
+        print("Saved: kmeans_clusters_pca.png")
+
+    if "kmeans_cluster" in df.columns and "cleaned_strong" in df.columns:
+        print("\nGenerating Word Clouds for each cluster...")
+
+        try:
+            from wordcloud import WordCloud
+        except ImportError:
+            print("ERROR: The 'wordcloud' library is not installed. Please run 'pip install wordcloud'.")
+            return
+        
+        cluster_colors_visible = [USAA_NAVY, USAA_GOLD, USAA_SLATE]
+        
+        for cluster_num, color in zip(df["kmeans_cluster"].unique(), cluster_colors_visible):
+            cluster_text = " ".join(df[df["kmeans_cluster"] == cluster_num]["cleaned_strong"].dropna())
+            
+            if not cluster_text:
+                print(f"Skipping Cluster {cluster_num}: No substantial text found.")
+                continue
+
+            wordcloud = WordCloud(
+                width=800, 
+                height=400, 
+                background_color="white",
+                colormap=BOLD_USAA_CMAP, 
+                stopwords=ENGLISH_STOP_WORDS 
+            ).generate(cluster_text)
+            
+            filename = f"cluster_{cluster_num}_wordcloud.png"
+            plt.figure(figsize=(10, 5))
+            plt.imshow(wordcloud, interpolation="bilinear")
+            plt.axis("off")
+            plt.title(f"Cluster {cluster_num} Word Cloud", color=color) 
+            plt.tight_layout(pad=0)
+            plt.savefig(filename, dpi=260)
+            print(f"Saved: {filename}")
+
+    # Trend by Year Heatmap 
+    if "year" in df.columns and REASON_COL in df.columns:
         valid_mask = df["year"].notna()
-        table = pd.crosstab(df.loc[valid_mask, "year"], trend_series[valid_mask])
-        print("\nTrend by year table:\n", table)
-
+        table = pd.crosstab(df.loc[valid_mask,"year"], df.loc[valid_mask,"trend"])
         if not table.empty:
-            plt.figure(figsize=(11, 5))
-            plt.grid(False)
-
-            plt.imshow(
-                table.values,
-                aspect="auto",
-                cmap=USAA_CMAP,
-                interpolation="nearest"   # clean blocks, no extra lines
-            )
-
-            plt.xticks(
-                range(len(table.columns)),
-                table.columns,
-                rotation=45,
-                ha="right"
-            )
-            plt.yticks(
-                range(len(table.index)),
-                table.index
-            )
+            plt.figure(figsize=(11,5))
+            plt.imshow(table.values, aspect="auto", cmap=USAA_CMAP, interpolation="nearest")
+            plt.xticks(range(len(table.columns)), table.columns, rotation=45, ha="right")
+            plt.yticks(range(len(table.index)), table.index)
             plt.colorbar(label="Number of Articles")
             plt.title("Fraud Trends by Year")
-            plt.xlabel("Trend Bucket")
+            plt.xlabel("Trend")
             plt.ylabel("Year")
             plt.tight_layout()
             plt.savefig("trend_by_year_heatmap.png", dpi=260)
             print("Saved: trend_by_year_heatmap.png")
-    else:
-        print("\n⚠️ Skipping heatmap (need both year and fraud_reason).")
 
 if __name__ == "__main__":
     main()

@@ -1,239 +1,230 @@
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import PCA
-import json 
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.cluster import KMeans
-from wordcloud import WordCloud, STOPWORDS
-import pandas as pd
-from google import genai
-import time
-from dotenv import load_dotenv
 import os
-from supabase import create_client, Client
+import json
+import pandas as pd
+from sklearn.cluster import KMeans
+from sentence_transformers import SentenceTransformer
+from google import genai
+from dotenv import load_dotenv
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np 
+import time
+from supabase import Client, create_client
+# -----------------------------
+# Set up
+# -----------------------------
 
 load_dotenv()
 
-GOOGLE_API_KEY = os.environ["GOOGLE_API_KEY"]
+GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# -------------------
-# load in data
-# -------------------
-json_data = os.environ["JSON_DATA"]
+data_input_path = "all-websites.json"
+cache_path = "fraud_results_optimized.json"
+data_output_path = "fraud_results_final.json" 
 
-with open(json_data, 'r') as f:
-    data = json.load(f)
+FRAUD_THRESHOLD_HIGH = 0.70 
+FRAUD_THRESHOLD_LOW = 0.35
 
-df = pd.DataFrame(data)
+genai_client = genai.Client(api_key=GEMINI_API_KEY)
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
-ids = []
-texts = []
+# -----------------------------
+# Load in data
+# -----------------------------
+print(f"Loading data from {data_input_path}...")
+try:
+    with open(data_input_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    df = pd.DataFrame(data)
+except FileNotFoundError:
+    raise FileNotFoundError(f"Input file not found at: {data_input_path}")
+except json.JSONDecodeError:
+    raise ValueError(f"Error decoding JSON from: {data_input_path}. Check file format.")
 
-for item in data:
-    if "cleaned_text" in item and item["cleaned_text"] not in ("", None):
-        ids.append(item["id"])
-        texts.append(item["cleaned_text"])
-    
-# -------------------
-# creating embeddings
-# -------------------
-model = SentenceTransformer('All-mpnet-base-v2')
+if "id" not in df.columns:
+    raise ValueError("Your dataframe must contain a unique 'id' column.")
+print(f"Loaded {len(df)} records.\n")
 
-embeddings = model.encode(texts)
+# -----------------------------
+# Load cached results 
+# -----------------------------
+if os.path.exists(cache_path):
+    print("\nLoading cached LLM results…")
+    with open(cache_path, "r", encoding="utf-8") as f:
+        old_results = json.load(f)
 
-# -------------------
-# semantic similarity
-# -------------------
-similarity_matrix = cosine_similarity(embeddings)
+    old_df = pd.DataFrame(old_results)
 
-plt.figure(figsize=(10, 8))
-sns.heatmap(similarity_matrix, 
-            annot=True, 
-            fmt='.3f', 
-            cmap='YlOrRd',
-            xticklabels=[f"S{i+1}" for i in range(len(texts))],
-            yticklabels=[f"S{i+1}" for i in range(len(texts))],
-            cbar_kws={'label': 'Cosine Similarity'})
-plt.title('Semantic Similarity Matrix', fontsize=14, fontweight='bold')
-plt.tight_layout()
-plt.show()
+    df = df.merge(
+        old_df[["id", "fraud_related", "fraud_confidence", "fraud_reason", "detection_method"]],
+        on="id",
+        how="left"
+    )
 
-print("\nSentence Pairs and Similarities")
-print("-" * 70)
-for i in range(len(texts)):
-    for j in range(i+1, len(texts)):
-        sim = similarity_matrix[i][j]
-        print(f"'{ids[i]}' \n vs \n'{ids[j]}'")
-        print(f" Similarity: {sim:.3f}\n")
+    df["needs_llm"] = df["fraud_related"].isna()
 
-# --------------------------------
-# visualizing embeddings with PCA
-# --------------------------------
-pca = PCA(n_components=2)
-embeddings_2d = pca.fit_transform(embeddings)
+    print(f"Loaded {len(old_df)} cached records.")
+    print(f"{df['needs_llm'].sum()} items need Gemini calls.\n")
 
-plt.figure(figsize=(12, 8))
-scatter = plt.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], 
-                     s=200, c=range(len(texts)), cmap='viridis', 
-                     alpha=0.6, edgecolors='black', linewidth=2)
+else:
+    print("No cache found — starting fresh\n")
+    df["needs_llm"] = True
 
-for i, sentence in enumerate(texts):
-    plt.annotate(f"S{i+1}", 
-                xy=(embeddings_2d[i, 0], embeddings_2d[i, 1]),
-                xytext=(5, 5), textcoords='offset points',
-                fontsize=12, fontweight='bold')
+# -----------------------------
+# Create text embeddings
+# -----------------------------
+print("Generating embeddings…")
 
-plt.xlabel('First Principal Component', fontsize=12)
-plt.ylabel('Second Principal Component', fontsize=12)
-plt.title('2D Visualization of Sentence Embeddings', fontsize=14, fontweight='bold')
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
+embeddings = model.encode(df["cleaned_text"].fillna("").tolist(), show_progress_bar=True)
+df["embedding"] = embeddings.tolist()
 
-# ------------------
-# kmeans clustering
-# ------------------
-kmeans = KMeans(n_clusters=3, random_state=42)
-df["kmeans_cluster"] = kmeans.fit_predict(embeddings)
-# df = df.merge(df[df["id", "kmeans_cluster"]], on="id", how="left")
+print(f"Successfully added embeddings for {len(df)} records to the DataFrame.")
+
+# -----------------------------
+# Clustering
+# -----------------------------
 k = 3
-plt.figure(figsize=(10, 8))
-palette = sns.color_palette("husl", k)
+print(f"\nUsing k={k} clusters")
 
-sns.scatterplot(
-    x=embeddings_2d[:, 0],
-    y=embeddings_2d[:, 1],
-    hue=df["kmeans_cluster"],
-    palette=palette,
-    s=150,
-    alpha=0.7,
-    edgecolor='black'
+kmeans = KMeans(n_clusters=k, random_state=42)
+df["kmeans_cluster"] = kmeans.fit_predict(embeddings)
+
+cluster_keywords = {}
+for cluster_num in range(k):
+    subset = df[df["kmeans_cluster"] == cluster_num]["cleaned_text"].str.lower().str.cat(sep=" ")
+    cluster_keywords[cluster_num] = subset[:200]
+
+# -----------------------------
+# Embedding fraud prescreening
+# -----------------------------
+print("\nRunning embedding pre-screening...")
+
+fraud_keywords = [
+    "scam alert", "ponzi scheme", "identity theft", "credit card fraud",
+    "phishing attack", "cryptocurrency scam", "money laundering", "deceptive practices"
+]
+fraud_embeddings = model.encode(fraud_keywords)
+fraud_centroid = np.mean(fraud_embeddings, axis=0).reshape(1, -1) 
+
+# Create embeddings
+all_embeddings = np.array(df["embedding"].tolist())
+similarity_scores = cosine_similarity(all_embeddings, fraud_centroid).flatten()
+df["fraud_score"] = similarity_scores
+
+is_ambiguous = df["fraud_score"].apply(
+    lambda x: FRAUD_THRESHOLD_LOW <= x <= FRAUD_THRESHOLD_HIGH
 )
 
-centers_2d = pca.transform(kmeans.cluster_centers_)
-plt.scatter(
-    centers_2d[:, 0], centers_2d[:, 1],
-    c='black', s=300, marker='X', label='Cluster Centers'
-)
+df.loc[df["fraud_score"] > FRAUD_THRESHOLD_HIGH, ["fraud_related", "fraud_confidence", "fraud_reason", "detection_method"]] = \
+    [True, 1.0, "Pre-screen: High embedding similarity to fraud keywords.", "embedding_high"]
 
-plt.title(f'KMeans Clusters (k={k}) in PCA Space', fontsize=14, fontweight='bold')
-plt.xlabel('First Principal Component')
-plt.ylabel('Second Principal Component')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
+df.loc[df["fraud_score"] < FRAUD_THRESHOLD_LOW, ["fraud_related", "fraud_confidence", "fraud_reason", "detection_method"]] = \
+    [False, 1.0, "Pre-screen: Low embedding similarity to fraud keywords.", "embedding_low"]
 
-def generate_word_cloud(cluster_num):
-    cluster_docs = df[df["kmeans_cluster"] == cluster_num]["cleaned_text"]
-    text = ' '.join(cluster_docs)
+df["needs_llm"] = is_ambiguous & df["fraud_related"].isna() 
 
-    stopwords = set(STOPWORDS)
 
-    wordcloud = WordCloud(width=800, height=400, background_color='white', stopwords=stopwords).generate(text)
+print(f"Pre-screened {len(df) - df['needs_llm'].sum()} items.")
+print(f"{df['needs_llm'].sum()} items remaining for Gemini LLM analysis.")
 
-    plt.imshow(wordcloud, interpolation='bilinear')
-    plt.axis('off')
-    plt.title(f"Word Cloud for Cluster {cluster_num}")
-    plt.show()
-
-for i in range(k):
-    generate_word_cloud(i)
-
-# ------------------------
-# Initialize Gemini Client
-# ------------------------
-client = genai.Client(api_key=GOOGLE_API_KEY)
-
-def detect_fraud(article_text):
-    """Classify if text is related to fraud/scams using Gemini."""
-    if not isinstance(article_text, str) or len(article_text.strip()) == 0:
-        return {"fraud_related": False, "reason": "Empty or invalid text"}
-
+# ------------------------------------------
+# Gemini classification for ambiguous cases
+# ------------------------------------------
+def classify_with_gemini(text, cluster_label, max_retries=5, initial_delay=5):
     prompt = f"""
-    You are an AI analyst. Determine if the following text relates to Fraud, Scams, or any type of Finacial Misconduct.
-    Respond ONLY in JSON with:
-    {{
-      "fraud_related": true/false,
-      "reason": "short explanation"
-    }}
+Determine if the following article is related to fraud.
 
-    Text:
-    {article_text[:15000]}
-    """
+Cluster context: "{cluster_label}"
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        text_response = response.text.strip()
+Text:
+{text}
 
-        json_start = text_response.find("{")
-        json_end = text_response.rfind("}") + 1
+Return ONLY JSON exactly in this structure:
+{{
+  "fraud_related": true/false,
+  "fraud_confidence": number between 0 and 1,
+  "fraud_reason": "brief explanation",
+  "detection_method": "llm_gemini"
+}}
+"""
+    for attempt in range(max_retries):
+        try:
+            response = genai_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config={
+                    "response_mime_type": "application/json"
+                }
+            )
+            
+            result = json.loads(response.text)
+            result["detection_method"] = "llm_gemini"
+            return result
 
-        return json.loads(text_response[json_start:json_end])
+        except Exception as e:
+            error_str = str(e)
+            
+            if "503 UNAVAILABLE" in error_str and attempt < max_retries - 1:
+                delay = initial_delay * (2 ** attempt)  
+                print(f"Gemini ERROR: 503 UNAVAILABLE. Retrying in {delay} seconds (Attempt {attempt + 1}/{max_retries}).")
+                time.sleep(delay)
+                continue 
 
-    except Exception as e:
-        print("Gemini error:", e)
-        return {"fraud_related": None, "reason": str(e)}
+            print("Gemini ERROR:", error_str)
+            break 
 
-# ---------------------------
-# Run Gemini for each article
-# ---------------------------
-df["fraud_related"] = False
-df["fraud_reason"] = ""
+    return {
+        "fraud_related": False,
+        "fraud_confidence": 0.0,
+        "fraud_reason": "error_rate_limited",
+        "detection_method": "error"
+    }
+
+print("\nRunning Gemini fraud detection (only ambiguous items)…")
+
+for col in ["fraud_related", "fraud_confidence", "fraud_reason", "detection_method"]:
+    if col not in df.columns:
+        df[col] = None
+
+print(f"Starting LLM loop for {df['needs_llm'].sum()} items.")
 
 for i, row in df.iterrows():
-    text = str(row.get("cleaned_text", "")).strip()
-    cluster = row.get("kmeans_cluster", None)
-
-    if cluster is None:
-        continue
-
-    if cluster == 0:
-        df.loc[i, "fraud_related"] = True
-        df.loc[i, "fraud_reason"] = "Cluster 0 indicates article is fraud-related."
-        continue
-
-    if cluster == 1:
-        df.loc[i, "fraud_related"] = False
-        df.loc[i, "fraud_reason"] = "Cluster 1 indicates article is not fraud-related."
+    if not row["needs_llm"]:
         continue
     
-    if cluster == 2:
+    cluster_label = cluster_keywords[row["kmeans_cluster"]]
+    
+    result = classify_with_gemini(row["cleaned_text"], cluster_label)
 
-        print(f"\n Cluster 2 (ambiguous). Sending to LLM --> {row['link'][:60]} ...")
-        result = detect_fraud(text)
+    df.at[i, "fraud_related"] = result.get("fraud_related")
+    df.at[i, "fraud_confidence"] = result.get("fraud_confidence", 0.95)
+    df.at[i, "fraud_reason"] = result.get("fraud_reason")
+    df.at[i, "detection_method"] = result.get("detection_method")
 
-        df.loc[i, "fraud_related"] = bool(result.get("fraud_related", False))
-        df.loc[i, "fraud_reason"] = result.get("reason", "")
+# -----------------------------
+# Save updated JSON cache file
+# -----------------------------
+results = df.to_dict(orient="records")
 
-        print(" Waiting 7 seconds to avoid rate limits...")
-        time.sleep(7)
+with open(cache_path, "w", encoding="utf-8") as f:
+    json.dump(results, f, indent=2, ensure_ascii=False)
 
-# Save JSON output
-output_data = df.to_dict(orient="records")
+print(f"\nSaved updated results to {cache_path}")
 
-with open("fraud_results.json", "w", encoding="utf-8") as f:
-    json.dump(df.to_dict("records"), f, indent=2)
+# -----------------------------
+# Save updated final JSON file
+# -----------------------------
+with open(data_output_path, "w", encoding="utf-8") as f:
+    json.dump(results, f, indent=2, ensure_ascii=False)
+print(f"Also saved final results to {data_output_path}")
 
-# Print total fraud related articles.
-fraud_count = df["fraud_related"].sum()
-print(f"\n Total articles that are FRAUD-RELATED: {fraud_count}")
-
-print("\n Gemini Analysis complete. Saved results to fraud_results.json")
-
-# -------------------
-# Add to Supabase
-# -------------------
+# -----------------------------
+# Add to supabase
+# -----------------------------
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-records = df.to_dict(orient="records")
 table_name = "scrapeddata"
-response = supabase.table(table_name).upsert(records).execute()
+response = supabase.table(table_name).upsert(results).execute()
