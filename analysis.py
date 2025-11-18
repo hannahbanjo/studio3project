@@ -112,7 +112,8 @@ def clean_text_strong(text):
                     "proposed rule", "financial institution", "comptroller", "fdic",
                     "united states", "federal reserve", "secrecy act", "bank secrecy", "office",
                     "helpwithmybank", "banks", "search", "gov", "bank", "organization", "currency"
-                    "management", "office currency", "custody services", "occ"]
+                    "management", "office currency", "custody services", "occ", 
+                    "reputation", "risk management"]
     for jp in junk_phrases: text = text.replace(jp, " ")
     words = [w for w in text.split() if w not in EXTRA_STOPS]
     return " ".join(words)
