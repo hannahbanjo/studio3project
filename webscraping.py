@@ -52,7 +52,7 @@ def scrape_pdf(link):
 
     return full_text, date
 
-website_csv = pd.read_csv("websites.csv")
+website_csv = pd.read_csv("websites2.csv")
 
 cleaned_texts = []
 dates = []
@@ -69,7 +69,8 @@ for index, row in website_csv.iterrows():
 
 website_csv["cleaned_text"] = cleaned_texts
 website_csv["date"] = dates
-website_csv.to_csv("websites.csv", index=False)
+website_csv.insert(0, "id", website_csv.index + 1)
+website_csv.to_csv("websites2.csv", index=False)
 
-df = pd.read_csv("websites.csv")
-json_data = df.to_json("websites.json", orient='records', indent=2)
+df = pd.read_csv("websites2.csv")
+json_data = df.to_json("websites2.json", orient='records', indent=2)
