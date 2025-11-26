@@ -17,9 +17,8 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-DATA_INPUT_PATH = os.getenv("DATA_INPUT_PATH")
+JSON_DATA = os.getenv("JSON_DATA")
 CACHE_PATH = os.getenv("CACHE_PATH")
-DATA_OUTPUT_PATH = os.getenv("DATA_OUTPUT_PATH")
 
 FRAUD_THRESHOLD_HIGH = 0.70 
 FRAUD_THRESHOLD_LOW = 0.35
@@ -30,15 +29,15 @@ model = SentenceTransformer("all-MiniLM-L6-v2")
 # -----------------------------
 # Load in data
 # -----------------------------
-print(f"Loading data from {DATA_INPUT_PATH}...")
+print(f"Loading data from {JSON_DATA}...")
 try:
-    with open(DATA_INPUT_PATH, 'r', encoding='utf-8') as f:
+    with open(JSON_DATA, 'r', encoding='utf-8') as f:
         data = json.load(f)
     df = pd.DataFrame(data)
 except FileNotFoundError:
-    raise FileNotFoundError(f"Input file not found at: {DATA_INPUT_PATH}")
+    raise FileNotFoundError(f"Input file not found at: {JSON_DATA}")
 except json.JSONDecodeError:
-    raise ValueError(f"Error decoding JSON from: {DATA_INPUT_PATH}. Check file format.")
+    raise ValueError(f"Error decoding JSON from: {JSON_DATA}. Check file format.")
 
 if "id" not in df.columns:
     raise ValueError("Your dataframe must contain a unique 'id' column.")
@@ -242,9 +241,9 @@ print(f"\nSaved updated results to {CACHE_PATH}")
 # -----------------------------
 # Save updated final JSON file
 # -----------------------------
-with open(DATA_OUTPUT_PATH, "w", encoding="utf-8") as f:
+with open(JSON_DATA, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2, ensure_ascii=False)
-print(f"Also saved final results to {DATA_OUTPUT_PATH}")
+print(f"Also saved final results to {JSON_DATA}")
 
 # -----------------------------
 # Add to supabase
