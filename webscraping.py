@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+CSV_DATA = os.getenv("INPUT_CSV")
+JSON_DATA = os.getenv("OUTPUT_JSON")
+
 def scrape_website(link):
     print(f"Scraping website: {link}")
     response = requests.get(link)
@@ -52,12 +55,12 @@ def scrape_pdf(link):
 
     return full_text, date
 
-website_csv = pd.read_csv("websites2.csv")
+CSV_DATA = pd.read_csv("websites2.csv")
 
 cleaned_texts = []
 dates = []
 
-for index, row in website_csv.iterrows():
+for index, row in CSV_DATA.iterrows():
     if row["type"] == "website":
         cleaned_text, date = scrape_website(row["link"])
         
@@ -67,10 +70,10 @@ for index, row in website_csv.iterrows():
     cleaned_texts.append(cleaned_text)
     dates.append(date)
 
-website_csv["cleaned_text"] = cleaned_texts
-website_csv["date"] = dates
-website_csv.insert(0, "id", website_csv.index + 1)
-website_csv.to_csv("websites2.csv", index=False)
+CSV_DATA["cleaned_text"] = cleaned_texts
+CSV_DATA["date"] = dates
+CSV_DATA.insert(0, "id", CSV_DATA.index + 1)
+CSV_DATA.to_csv("websites2.csv", index=False)
 
-df = pd.read_csv("websites2.csv")
-json_data = df.to_json("websites2.json", orient='records', indent=2)
+df = pd.read_csv(CSV_DATA)
+df.to_json(JSON_DATA, orient='records', indent=2)

@@ -17,9 +17,9 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-data_input_path = "all-websites.json"
-cache_path = "fraud_results_optimized.json"
-data_output_path = "fraud_results_final.json" 
+DATA_INPUT_PATH = os.getenv("DATA_INPUT_PATH")
+CACHE_PATH = os.getenv("CACHE_PATH")
+DATA_OUTPUT_PATH = os.getenv("DATA_OUTPUT_PATH")
 
 FRAUD_THRESHOLD_HIGH = 0.70 
 FRAUD_THRESHOLD_LOW = 0.35
@@ -30,15 +30,15 @@ model = SentenceTransformer("all-MiniLM-L6-v2")
 # -----------------------------
 # Load in data
 # -----------------------------
-print(f"Loading data from {data_input_path}...")
+print(f"Loading data from {DATA_INPUT_PATH}...")
 try:
-    with open(data_input_path, 'r', encoding='utf-8') as f:
+    with open(DATA_INPUT_PATH, 'r', encoding='utf-8') as f:
         data = json.load(f)
     df = pd.DataFrame(data)
 except FileNotFoundError:
-    raise FileNotFoundError(f"Input file not found at: {data_input_path}")
+    raise FileNotFoundError(f"Input file not found at: {DATA_INPUT_PATH}")
 except json.JSONDecodeError:
-    raise ValueError(f"Error decoding JSON from: {data_input_path}. Check file format.")
+    raise ValueError(f"Error decoding JSON from: {DATA_INPUT_PATH}. Check file format.")
 
 if "id" not in df.columns:
     raise ValueError("Your dataframe must contain a unique 'id' column.")
@@ -47,9 +47,9 @@ print(f"Loaded {len(df)} records.\n")
 # -----------------------------
 # Load cached results 
 # -----------------------------
-if os.path.exists(cache_path):
+if os.path.exists(CACHE_PATH):
     print("\nLoading cached LLM results…")
-    with open(cache_path, "r", encoding="utf-8") as f:
+    with open(CACHE_PATH, "r", encoding="utf-8") as f:
         old_results = json.load(f)
 
     old_df = pd.DataFrame(old_results)
@@ -82,7 +82,7 @@ print(f"Successfully added embeddings for {len(df)} records to the DataFrame.")
 # -----------------------------
 # Clustering
 # -----------------------------
-k = 3
+k = 7
 print(f"\nUsing k={k} clusters")
 
 kmeans = KMeans(n_clusters=k, random_state=42)
@@ -99,9 +99,35 @@ for cluster_num in range(k):
 print("\nRunning embedding pre-screening...")
 
 fraud_keywords = [
-    "scam alert", "ponzi scheme", "identity theft", "credit card fraud",
-    "phishing attack", "cryptocurrency scam", "money laundering", "deceptive practices"
+    "bank fraud", "loan fraud", "mortgage fraud", "deposit fraud",
+    "wire fraud", "check fraud", "identity theft", "account takeover",
+    "payment fraud", "elder financial abuse",
+    "phishing scam", "vishing scam", "smishing scam",
+    "fake bank website", "spoofed bank call", "imposter scam",
+    "advance fee scam", "romance scam", "check kiting",
+    "unauthorized withdrawals", "fraudulent transfers",
+    "money laundering", "structuring transactions", "suspicious activity",
+    "suspicious transaction", "shell company", "terrorist financing",
+    "synthetic identity fraud", "kyc fraud", "aml violation",
+    "predatory lending", "deceptive practices", "UDAAP violation",
+    "fair lending fraud", "loan application misrepresentation",
+    "cryptocurrency scam", "crypto investment fraud", "online banking scam",
+    "ransomware", "data breach", "account compromise",
+    "scam alert", "fraudulent activity", "consumer complaint",
+    "fraud investigation", "suspicious pattern", "unauthorized account opening",
+    "ACH fraud", "unauthorized ACH transfer", "card fraud", "phishing",
+    "impersonation", "synthetic", "AI", "voice cloning", "digital wallet",
+    "spoof", "crypto", "impersonation", "malware", "SIM", "employment",
+    "email", "extortion", "data breach", "deepfakes", "new account fraud",
+    "friendly fraud", "chargeback fraud", "embezzlement", "collusive fraud",
+    "account bust-out", "money mule activity", "device spoofing", 
+    "business email compromise", "session hijacking", "man-in-the-middle attack"
+    "account credential compromise", "SIM swap fraud", "social engineering attack",
+    "card skimming", "credential stuffing", "brute force login attempt", 
+    "unauthorized ACH transfer", "ATM cash-out scheme", "mobile check deposit fraud",
+    "remote deposit capture fraud", "account hijacking", "scam"
 ]
+
 fraud_embeddings = model.encode(fraud_keywords)
 fraud_centroid = np.mean(fraud_embeddings, axis=0).reshape(1, -1) 
 
@@ -131,9 +157,10 @@ print(f"{df['needs_llm'].sum()} items remaining for Gemini LLM analysis.")
 # ------------------------------------------
 def classify_with_gemini(text, cluster_label, max_retries=5, initial_delay=5):
     prompt = f"""
-Determine if the following article is related to fraud.
+Determine if the following article is related to fraud and summarize the articles.
 
-Cluster context: "{cluster_label}"
+Cluster context:
+{cluster_label}
 
 Text:
 {text}
@@ -143,7 +170,8 @@ Return ONLY JSON exactly in this structure:
   "fraud_related": true/false,
   "fraud_confidence": number between 0 and 1,
   "fraud_reason": "brief explanation",
-  "detection_method": "llm_gemini"
+  "detection_method": "llm_gemini",
+  "summary": "summary of each article
 }}
 """
     for attempt in range(max_retries):
@@ -181,7 +209,7 @@ Return ONLY JSON exactly in this structure:
 
 print("\nRunning Gemini fraud detection (only ambiguous items)…")
 
-for col in ["fraud_related", "fraud_confidence", "fraud_reason", "detection_method"]:
+for col in ["fraud_related", "fraud_confidence", "fraud_reason", "detection_method", "summary"]:
     if col not in df.columns:
         df[col] = None
 
@@ -199,23 +227,24 @@ for i, row in df.iterrows():
     df.at[i, "fraud_confidence"] = result.get("fraud_confidence", 0.95)
     df.at[i, "fraud_reason"] = result.get("fraud_reason")
     df.at[i, "detection_method"] = result.get("detection_method")
+    df.at[i, "summary"] = result.get("summary")
 
 # -----------------------------
 # Save updated JSON cache file
 # -----------------------------
 results = df.to_dict(orient="records")
 
-with open(cache_path, "w", encoding="utf-8") as f:
+with open(CACHE_PATH, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2, ensure_ascii=False)
 
-print(f"\nSaved updated results to {cache_path}")
+print(f"\nSaved updated results to {CACHE_PATH}")
 
 # -----------------------------
 # Save updated final JSON file
 # -----------------------------
-with open(data_output_path, "w", encoding="utf-8") as f:
+with open(DATA_OUTPUT_PATH, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2, ensure_ascii=False)
-print(f"Also saved final results to {data_output_path}")
+print(f"Also saved final results to {DATA_OUTPUT_PATH}")
 
 # -----------------------------
 # Add to supabase

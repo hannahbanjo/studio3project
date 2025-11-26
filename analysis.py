@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
 import numpy as np
 from dotenv import load_dotenv
 import os
@@ -58,6 +57,8 @@ REASON_COL = "fraud_reason"
 DATE_COL = "date"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
+CHART_DIR = Path("charts")
+CHART_DIR.mkdir(exist_ok=True)
 
 EXTRA_STOPS = {
     "http","https","www","com","org","gov","edu","php","html","amp"
@@ -453,7 +454,7 @@ def main():
 
     # K-Means Cluster Visualization using original embeddings
     if "embedding" in df.columns and "kmeans_cluster" in df.columns:
-        print("Plotting K-Means clusters based on ORIGINAL embeddings...")
+        print("Plotting K-Means clusters based on original embeddings...")
         
         df_clustered = df[df["embedding"].apply(lambda x: isinstance(x, (list, np.ndarray)) and len(x) > 0)].copy()
 
@@ -477,8 +478,8 @@ def main():
                 plt.legend()
                 plt.title("K-Means Clusters (PCA 2D) - Original Embeddings")
                 plt.tight_layout()
-                plt.savefig("kmeans_clusters_original_embeddings.png", dpi=300)
-                print("Saved: kmeans_clusters_original_embeddings.png")
+                plt.savefig(CHART_DIR/"kmeans_clusters_original_embeddings.png", dpi=300)
+                print("Saved: charts/kmeans_clusters_original_embeddings.png")
             else:
                 print("Skipping K-Means plot: Only one unique cluster found.")
         
@@ -524,8 +525,8 @@ def main():
     plt.xlabel("Frequency")
     plt.title("Top 10 Bigrams")
     plt.tight_layout()
-    plt.savefig("top_clean_bigrams.png", dpi=300, bbox_inches="tight")
-    print("Saved: top_clean_bigrams.png")
+    plt.savefig(CHART_DIR/"top_clean_bigrams.png", dpi=300, bbox_inches="tight")
+    print("Saved: charts/top_clean_bigrams.png")
 
     # Top trends by LOB
     lob_trends = {}
@@ -552,8 +553,8 @@ def main():
     plt.title("Top Fraud Trends by Line of Business")
     plt.ylabel("Frequency")
     plt.tight_layout()
-    plt.savefig("lob_trends.png", dpi=300, bbox_inches="tight")
-    print("Saved: lob_trends.png")
+    plt.savefig(CHART_DIR/"lob_trends.png", dpi=300, bbox_inches="tight")
+    print("Saved: charts/lob_trends.png")
 
     # Articles by Year
     if "year" in df.columns and df["year"].notna().any():
@@ -565,8 +566,8 @@ def main():
         plt.ylabel("Count")
         plt.xlabel("Year")
         plt.tight_layout()
-        plt.savefig("articles_by_year.png", dpi=300)
-        print("Saved: articles_by_year.png")
+        plt.savefig(CHART_DIR/"articles_by_year.png", dpi=300)
+        print("Saved: charts/articles_by_year.png")
 
     # Word Clouds per Cluster
     if "kmeans_cluster" in df.columns:
@@ -617,10 +618,10 @@ def main():
                 plt.axis("off")
                 plt.title(f"Cluster {cluster_num} – Key Themes", fontsize=18, color=USAA_NAVY, pad=30)
                 plt.tight_layout(pad=0)
-                filename = f"wordclouds/cluster_{cluster_num}_wordcloud.png"
+                filename = CHART_DIR /f"wordclouds/cluster_{cluster_num}_wordcloud.png"
                 plt.savefig(filename, dpi=300, bbox_inches="tight")
                 plt.close()
-                print(f"  → Saved {filename}")
+                print(f"  → Saved charts/{filename}")
 
     # Trend by Year Heatmap
     if "year" in df.columns and REASON_COL in df.columns:
@@ -636,8 +637,8 @@ def main():
             plt.xlabel("Trend")
             plt.ylabel("Year")
             plt.tight_layout()
-            plt.savefig("trend_by_year_heatmap.png", dpi=300)
-            print("Saved: trend_by_year_heatmap.png")
+            plt.savefig(CHART_DIR/"trend_by_year_heatmap.png", dpi=300)
+            print("Saved: charts/trend_by_year_heatmap.png")
     
 if __name__ == "__main__":
     main()
