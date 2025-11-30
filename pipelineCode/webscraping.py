@@ -55,8 +55,6 @@ def scrape_pdf(link):
 
     return full_text, date
 
-CSV_DATA = pd.read_csv("websites2.csv")
-
 cleaned_texts = []
 dates = []
 
