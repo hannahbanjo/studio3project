@@ -75,7 +75,9 @@ uv run streamlit_run.py
 ```
 ## Application Design
 ### Architecture Diagram
+
 ![Architecture Diagram](architecture.png "Architecture Diagram")
+
 ### Folder Structure
 ```
 project/
@@ -89,9 +91,11 @@ project/
 ```
 ### GIF Demos
 Dashboard
+
 ![Dashboard](dashboard.gif "Dashboard")
 
 Search Library
+
 ![Search Libary](search.gif "Search Library")
 ## Process
 
