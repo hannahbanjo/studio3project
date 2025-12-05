@@ -50,7 +50,7 @@ BOLD_USAA_CMAP = LinearSegmentedColormap.from_list(
 # ----------
 # Setup
 # ---------- 
-JSON_PATH = os.getenv("DATA_OUTPUT_PATH")
+JSON_PATH = os.getenv("JSON_DATA")
 TEXT_COL = "cleaned_text"
 CLASS_COL = "fraud_related"
 REASON_COL = "fraud_reason"
@@ -571,57 +571,48 @@ def main():
 
     # Word Clouds per Cluster
     if "kmeans_cluster" in df.columns:
-        print("\nGenerating word clouds per cluster...")
+        print("\n=== Generating word clouds per cluster ===")
         os.makedirs("wordclouds", exist_ok=True)
 
-        for cluster_num in sorted(df["kmeans_cluster"].unique()):
-            if cluster_num == 4 and "subcluster" in df.columns:
-                for sub_num in sorted(df[df["kmeans_cluster"] == 4]["subcluster"].unique()):
-                    cluster_text = " ".join(
-                        df[(df["kmeans_cluster"] == 4) & (df["subcluster"] == sub_num)]["fully_cleaned"]
-                    )
-                    
-                    if not cluster_text.strip():
-                        continue
+        unique_clusters = sorted(df["kmeans_cluster"].unique())
+        print(f"Found clusters: {unique_clusters}\n")
 
-                    wc = WordCloud(
-                        width=1200, height=600, background_color="white",
-                        colormap=BOLD_USAA_CMAP, max_words=120, min_word_length=3,
-                        contour_width=1, contour_color=USAA_SLATE,
-                        stopwords=CUSTOM_STOP_WORDS, random_state=42
-                    ).generate(cluster_text)
+        for cluster_num in unique_clusters:
+            cluster_df = df[df["kmeans_cluster"] == cluster_num]
 
-                    plt.figure(figsize=(12, 6))
-                    plt.imshow(wc, interpolation="bilinear")
-                    plt.axis("off")
-                    plt.title(f"Cluster 4.{sub_num} – Key Themes", fontsize=18, color=USAA_NAVY, pad=30)
-                    plt.tight_layout(pad=0)
-                    filename = f"wordclouds/cluster_4_{sub_num}_wordcloud.png"
-                    plt.savefig(filename, dpi=300, bbox_inches="tight")
-                    plt.close()
-                    print(f"  → Saved {filename}")
-            else:
-                cluster_text = " ".join(df[df["kmeans_cluster"] == cluster_num]["fully_cleaned"])
+            # ---- DEBUG SUMMARY ----
+            raw_text = " ".join(cluster_df["fully_cleaned"])
+            print(
+                f"Cluster {cluster_num}: {len(cluster_df)} rows | "
+                f"has_text={bool(raw_text.strip())} | "
+                f"has_subclusters={ 'subcluster' in df.columns and cluster_df['subcluster'].notna().any() }"
+            )
+            if not raw_text.strip():
+                print(f"  Skipping cluster {cluster_num} (empty text)")
+                continue
 
-                if not cluster_text.strip():
-                    continue
+            wc = WordCloud(
+                width=1200, height=600, background_color="white",
+                colormap=BOLD_USAA_CMAP, max_words=120, min_word_length=3,
+                contour_width=1, contour_color=USAA_SLATE,
+                stopwords=CUSTOM_STOP_WORDS, random_state=42
+            ).generate(raw_text)
 
-                wc = WordCloud(
-                    width=1200, height=600, background_color="white",
-                    colormap=BOLD_USAA_CMAP, max_words=120, min_word_length=3,
-                    contour_width=1, contour_color=USAA_SLATE,
-                    stopwords=CUSTOM_STOP_WORDS, random_state=42
-                ).generate(cluster_text)
+            plt.figure(figsize=(12, 6))
+            plt.imshow(wc, interpolation="bilinear")
+            plt.axis("off")
+            plt.title(
+                f"Cluster {cluster_num} – Key Themes",
+                fontsize=18, color=USAA_NAVY, pad=30
+            )
+            plt.tight_layout(pad=0)
 
-                plt.figure(figsize=(12, 6))
-                plt.imshow(wc, interpolation="bilinear")
-                plt.axis("off")
-                plt.title(f"Cluster {cluster_num} – Key Themes", fontsize=18, color=USAA_NAVY, pad=30)
-                plt.tight_layout(pad=0)
-                filename = CHART_DIR /f"wordclouds/cluster_{cluster_num}_wordcloud.png"
-                plt.savefig(filename, dpi=300, bbox_inches="tight")
-                plt.close()
-                print(f"  → Saved charts/{filename}")
+            filename = f"charts/wordclouds/cluster_{cluster_num}_wordcloud.png"
+            plt.savefig(filename, dpi=300, bbox_inches="tight")
+            plt.close()
+
+            print(f"  → Saved {filename}")
+
 
     # Trend by Year Heatmap
     if "year" in df.columns and REASON_COL in df.columns:

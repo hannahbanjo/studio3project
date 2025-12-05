@@ -76,7 +76,7 @@ uv run streamlit_run.py
 ## Application Design
 ### Architecture Diagram
 
-![Architecture Diagram](architecture.png "Architecture Diagram")
+![Architecture Diagram](readme/architecture.png "Architecture Diagram")
 
 ### Folder Structure
 ```
@@ -92,11 +92,11 @@ project/
 ### GIF Demos
 Dashboard
 
-![Dashboard](dashboard.gif "Dashboard")
+![Dashboard](readme/dashboard.gif "Dashboard")
 
 Search Library
 
-![Search Libary](search.gif "Search Library")
+![Search Libary](readme/search.gif "Search Library")
 ## Process
 
 ### Text Cleaning Summary
@@ -226,6 +226,6 @@ Top Fraud Related Keywords
 ![Fraud Keywords](charts/averagefraudcases.png "Fraud Keywords")
 
 Word Clouds for KMeans Clusters
-![Cluster 1](charts/wordclouds/cluster_0_wordcloud.png "Cluster 1")
-![Cluster 2](charts/wordclouds/cluster_2_wordcloud.png "Cluster 2")
-![Cluster 3](charts/wordclouds/cluster_4_wordcloud.png "Cluster 3")
+![Cluster 1](charts/wordclouds/cluster_0.0_wordcloud.png "Cluster 1")
+![Cluster 2](charts/wordclouds/cluster_1.0_wordcloud.png "Cluster 2")
+![Cluster 3](charts/wordclouds/cluster_2.0_wordcloud.png "Cluster 3")

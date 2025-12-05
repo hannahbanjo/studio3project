@@ -52,17 +52,32 @@ if os.path.exists(CACHE_PATH):
         old_results = json.load(f)
 
     old_df = pd.DataFrame(old_results)
-
+    
+    optional_cols = ["fraud_related", "fraud_confidence", "fraud_reason", "detection_method", "summary"]
+    
+    for col in optional_cols:
+        if col in df.columns:
+            df.drop(col, axis=1, inplace=True)
+    
+    cache_cols = ["id"]
+    for col in optional_cols:
+        if col in old_df.columns:
+            cache_cols.append(col)
+    
     df = df.merge(
-        old_df[["id", "fraud_related", "fraud_confidence", "fraud_reason", "detection_method"]],
+        old_df[cache_cols],
         on="id",
         how="left"
     )
 
-    df["needs_llm"] = df["fraud_related"].isna()
-
-    print(f"Loaded {len(old_df)} cached records.")
-    print(f"{df['needs_llm'].sum()} items need Gemini calls.\n")
+    # If fraud_related exists, mark items that need LLM
+    if "fraud_related" in df.columns:
+        df["needs_llm"] = df["fraud_related"].isna()
+        print(f"Loaded {len(old_df)} cached records.")
+        print(f"{df['needs_llm'].sum()} items need Gemini calls.\n")
+    else:
+        print("Cache exists but no fraud_related column found — will process all items\n")
+        df["needs_llm"] = True
 
 else:
     print("No cache found — starting fresh\n")
@@ -77,20 +92,6 @@ embeddings = model.encode(df["cleaned_text"].fillna("").tolist(), show_progress_
 df["embedding"] = embeddings.tolist()
 
 print(f"Successfully added embeddings for {len(df)} records to the DataFrame.")
-
-# -----------------------------
-# Clustering
-# -----------------------------
-k = 7
-print(f"\nUsing k={k} clusters")
-
-kmeans = KMeans(n_clusters=k, random_state=42)
-df["kmeans_cluster"] = kmeans.fit_predict(embeddings)
-
-cluster_keywords = {}
-for cluster_num in range(k):
-    subset = df[df["kmeans_cluster"] == cluster_num]["cleaned_text"].str.lower().str.cat(sep=" ")
-    cluster_keywords[cluster_num] = subset[:200]
 
 # -----------------------------
 # Embedding fraud prescreening
@@ -218,7 +219,7 @@ for i, row in df.iterrows():
     if not row["needs_llm"]:
         continue
     
-    cluster_label = cluster_keywords[row["kmeans_cluster"]]
+    cluster_label = ""
     
     result = classify_with_gemini(row["cleaned_text"], cluster_label)
 
@@ -229,9 +230,62 @@ for i, row in df.iterrows():
     df.at[i, "summary"] = result.get("summary")
 
 # -----------------------------
+# Clustering 
+# -----------------------------
+print("\n" + "="*50)
+print("Clustering Fraud-Related Articles…")
+print("="*50)
+
+# Filter to fraud-related articles
+fraud_df = df[df["fraud_related"] == True].copy()
+print(f"\nFound {len(fraud_df)} fraud-related articles for clustering.")
+
+if len(fraud_df) > 0:
+    fraud_embeddings = np.array(fraud_df["embedding"].tolist())
+    
+    k = min(3, len(fraud_df))
+    print(f"Using k={k} clusters for fraud articles")
+    
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    fraud_df["kmeans_cluster"] = kmeans.fit_predict(fraud_embeddings)
+    
+    cluster_keywords = {}
+    for cluster_num in range(k):
+        subset = fraud_df[fraud_df["kmeans_cluster"] == cluster_num]["cleaned_text"].str.lower().str.cat(sep=" ")
+        cluster_keywords[cluster_num] = subset[:200]
+        print(f"\nCluster {cluster_num} ({len(fraud_df[fraud_df['kmeans_cluster'] == cluster_num])} articles):")
+        print(f"  Keywords: {cluster_keywords[cluster_num][:100]}...")
+    
+    df = df.merge(
+        fraud_df[["id", "kmeans_cluster"]],
+        on="id",
+        how="left",
+        suffixes=("", "_fraud")
+    )
+    
+    if "kmeans_cluster_fraud" in df.columns:
+        df["kmeans_cluster"] = df["kmeans_cluster_fraud"]
+        df.drop("kmeans_cluster_fraud", axis=1, inplace=True)
+else:
+    print("No fraud articles found to cluster.")
+    df["kmeans_cluster"] = None
+
+# -----------------------------
 # Save updated JSON cache file
 # -----------------------------
+duplicate_suffixes = ['_x', '_y', '_fraud']
+cols_to_drop = [col for col in df.columns if any(col.endswith(suffix) for suffix in duplicate_suffixes)]
+if cols_to_drop:
+    print(f"\nCleaning up duplicate columns: {cols_to_drop}")
+    df.drop(cols_to_drop, axis=1, inplace=True)
+
 results = df.to_dict(orient="records")
+
+for record in results:
+    for key, value in record.items():
+        if isinstance(value, float):
+            if np.isnan(value) or np.isinf(value):
+                record[key] = None
 
 with open(CACHE_PATH, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2, ensure_ascii=False)
