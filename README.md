@@ -203,9 +203,9 @@ def assign_trend(text):
 - **Fraud Surge in 2024**
     - There is a sharp increase in fraudulent activity starting in late 2024, suggesting that fraudsters are leveraging AI and automation to execute schemes more efficiently.
 - **Cluster Insights**
-    - Cluster 0: Highlights the bank's responsibility for governance and compliance with necessary internal controls to prevent exposing the banka and its members to external threats.
-    - Cluster 1: Detailing the high-risk payment channels, specifically wire transfers, checks, and debit/credit cards, that are being actively exploited by scams and require immediate enhancement of suspicious activity detection to protect consumers (members) and minimize institutional losses.
-    - Cluster 3: Increased need for protective measures against elder exploitation often facilitated by payments involving cryptocurrency.
+    - Cluster 0: Payment fraud with emphasis on elder victimization, employee roles, and regulatory reporting.
+    - Cluster 1: Regulatory and legal analysis for cryptocurrency and digital asset custody within national banks.
+    - Cluster 2: Actionable fraud operations, highlighting instruments (wire transfers, checks, cards), detection triggers (suspicious activity), and underlying deception (identity/address fraud, scams).
 
 ### Why This Matters
 - Military members face higher rates of several scams such as imposter scams or identity theft (≈45% vs 30% for non-military).
