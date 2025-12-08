@@ -199,7 +199,7 @@ def assign_trend(text):
 - **Payment Fraud Evolution**
     - Traditional payment fraud methods such as checks remain prevalent, while digital payment and P2P fraud are increasingly significant.
 - **Keywords Reflect Trends**
-    - Keywords like “customer identification,” “wire transfers,” “elder targeting,” and “suspicious activity” align with fraud trends, revealing both tactics such as social engineering, fictitious addresses and operational patterns such as transaction types.
+    - Keywords like “customer identification,” “wire transfers,” “elder exploitation,” and “suspicious activity” align with fraud trends, revealing both tactics such as social engineering, fictitious addresses and operational patterns such as transaction types.
 - **Fraud Surge in 2024**
     - There is a sharp increase in fraudulent activity starting in late 2024, suggesting that fraudsters are leveraging AI and automation to execute schemes more efficiently.
 - **Cluster Insights**
